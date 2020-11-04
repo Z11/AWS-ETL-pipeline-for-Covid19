@@ -1,0 +1,58 @@
+service:
+  name: getCovidDataFromSourcesAndMerge
+
+custom:
+  webpack:
+    webpackConfig: ./webpack.config.js
+    includeModules: false
+
+plugins:
+  - serverless-webpack
+  - serverless-s3-remover
+  - serverless-offline
+  # - serverless-step-functions
+
+provider:
+  name: aws
+  runtime: nodejs12.x
+  role: arn:aws:iam::XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX/glue_covid_role
+
+functions:
+  extract:
+    handler: lambda_function/extract.handler
+    environment:
+      JOHNHOPKINS_URL: https://raw.githubusercontent.com/datasets/covid-19/master/data/time-series-19-covid-combined.csv
+      NEWYORKPOST_URL: https://raw.githubusercontent.com/nytimes/covid-19-data/master/us.csv
+      COVIDBucketName: covidbucketupload-dev
+      COVIDFolderName: extractCSV
+      COVIDFileName: USAcovid19DataSet.csv
+    events:
+      - schedule:
+          name: Covid19CronJob
+          description: daily run
+          rate: rate(24 hours)
+          enabled: false
+          inputTransformer:
+            inputPathsMap:
+              eventTime: '$.time'
+            inputTemplate: '{"time": <eventTime>, "key1": "value1"}'
+  startCrawler:
+    handler: lambda_function/startCrawler.handler
+    environment:
+      CRAWLER_NAME: covid19_CSV_crawler
+
+resources:
+  Resources:
+    CovidBucketUpload:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: covidbucketupload-dev
+    GlueCrawler:
+      Type: AWS::Glue::Crawler
+      Properties:
+        DatabaseName: covid19_db_dev
+        Name: covid19_CSV_crawler
+        Role: arn:aws:iam::XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX:role/glueEtlRole
+        Targets:
+          S3Targets:
+            - Path: s3://covidbucketupload-dev/extractCSV/
